@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+
 	"github.com/awesome-gocui/gocui"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"

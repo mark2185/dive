@@ -2,13 +2,14 @@ package viewmodel
 
 import (
 	"bytes"
-	"github.com/wagoodman/dive/dive/image/docker"
-	"github.com/wagoodman/dive/runtime/ui/format"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
+
+	"github.com/wagoodman/dive/dive/image/docker"
+	"github.com/wagoodman/dive/runtime/ui/format"
 
 	"github.com/fatih/color"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -73,7 +74,7 @@ func assertTestData(t *testing.T, actualBytes []byte) {
 	helperCheckDiff(t, expectedBytes, actualBytes)
 }
 
-func initializeTestViewModel(t *testing.T) *FileTree {
+func initializeTestViewModel(t *testing.T) *FileTreeViewModel {
 	result := docker.TestAnalysisFromArchive(t, "../../../.data/test-docker-image.tar")
 
 	cache := filetree.NewComparer(result.RefTrees)
@@ -98,7 +99,7 @@ func initializeTestViewModel(t *testing.T) *FileTree {
 	return vm
 }
 
-func runTestCase(t *testing.T, vm *FileTree, width, height int, filterRegex *regexp.Regexp) {
+func runTestCase(t *testing.T, vm *FileTreeViewModel, width, height int, filterRegex *regexp.Regexp) {
 	err := vm.Update(filterRegex, width, height)
 	if err != nil {
 		t.Errorf("failed to update viewmodel: %v", err)

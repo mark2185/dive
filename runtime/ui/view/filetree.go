@@ -23,7 +23,7 @@ type FileTree struct {
 	gui    *gocui.Gui
 	view   *gocui.View
 	header *gocui.View
-	vm     *viewmodel.FileTree
+	vm     *viewmodel.FileTreeViewModel
 	title  string
 
 	filterRegex         *regexp.Regexp
@@ -96,6 +96,11 @@ func (v *FileTree) Setup(view, header *gocui.View) error {
 			ConfigKeys: []string{"keybinding.toggle-collapse-all-dir"},
 			OnAction:   v.toggleCollapseAll,
 			Display:    "Collapse all dir",
+		},
+		{
+			ConfigKeys: []string{"keybinding.toggle-sort-order"},
+			OnAction:   v.toggleSortOrder,
+			Display:    "Toggle sort order",
 		},
 		{
 			ConfigKeys: []string{"keybinding.toggle-added-files"},
@@ -283,6 +288,16 @@ func (v *FileTree) toggleCollapseAll() error {
 	if v.vm.CollapseAll {
 		v.resetCursor()
 	}
+	_ = v.Update()
+	return v.Render()
+}
+
+func (v *FileTree) toggleSortOrder() error {
+	err := v.vm.ToggleSortOrder()
+	if err != nil {
+		return err
+	}
+	v.resetCursor()
 	_ = v.Update()
 	return v.Render()
 }
