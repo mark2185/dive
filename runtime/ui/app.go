@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/awesome-gocui/gocui"
-	"github.com/sirupsen/logrus"
+	_ "github.com/sirupsen/logrus"
 
 	"github.com/wagoodman/dive/dive/filetree"
 	"github.com/wagoodman/dive/dive/image"
@@ -135,27 +135,27 @@ func (a *app) quit() error {
 
 // Run is the UI entrypoint.
 func Run(imageName string, analysis *image.AnalysisResult, treeStack filetree.Comparer) error {
-	var err error
+	// var err error
 
-	g, err := gocui.NewGui(gocui.OutputNormal, true)
-	if err != nil {
-		return err
-	}
-	defer g.Close()
+	// g, err := gocui.NewGui(gocui.OutputNormal, true)
+	// if err != nil {
+	// return err
+	// }
+	// defer g.Close()
 
-	_, err = newApp(g, imageName, analysis, treeStack)
-	if err != nil {
-		return err
-	}
+	// _, err = newApp(g, imageName, analysis, treeStack)
+	// if err != nil {
+	// return err
+	// }
 
-	key, mod := gocui.MustParse("Ctrl+Z")
-	if err := g.SetKeybinding("", key, mod, handle_ctrl_z); err != nil {
-		return err
-	}
+	// key, mod := gocui.MustParse("Ctrl+Z")
+	// if err := g.SetKeybinding("", key, mod, handle_ctrl_z); err != nil {
+	// return err
+	// }
 
-	if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
-		logrus.Error("main loop error: ", err)
-		return err
-	}
+	// if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
+	// logrus.Error("main loop error: ", err)
+	// return err
+	// }
 	return nil
 }
