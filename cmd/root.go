@@ -73,6 +73,7 @@ func initCli() {
 func initConfig() {
 	var err error
 
+	viper.SetDefault("gui.version", 1)
 	viper.SetDefault("log.level", log.InfoLevel.String())
 	viper.SetDefault("log.path", "./dive.log")
 	viper.SetDefault("log.enabled", false)

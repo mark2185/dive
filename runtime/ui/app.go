@@ -1,13 +1,19 @@
 package ui
 
 import (
+	"fmt"
+	"log"
+	"os"
 	"sync"
 
 	"github.com/awesome-gocui/gocui"
-	_ "github.com/sirupsen/logrus"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/sirupsen/logrus"
+	"github.com/spf13/viper"
 
 	"github.com/wagoodman/dive/dive/filetree"
 	"github.com/wagoodman/dive/dive/image"
+	tui "github.com/wagoodman/dive/runtime/ui/charm"
 	"github.com/wagoodman/dive/runtime/ui/key"
 	"github.com/wagoodman/dive/runtime/ui/layout"
 	"github.com/wagoodman/dive/runtime/ui/layout/compound"
@@ -135,27 +141,43 @@ func (a *app) quit() error {
 
 // Run is the UI entrypoint.
 func Run(imageName string, analysis *image.AnalysisResult, treeStack filetree.Comparer) error {
-	// var err error
+	guiVersion := viper.GetInt("gui.version")
+	if guiVersion == 2 {
+		// charm (bubbletea)
+		f, err := tea.LogToFile("debug.log", "debug")
+		if err != nil {
+			log.Fatalf("err: %w", err)
+		}
+		defer f.Close()
+		p := tea.NewProgram(tui.New(analysis.Layers), tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			fmt.Printf("Error'd out")
+			os.Exit(1)
+		}
+	} else if guiVersion == 1 {
+		// gocui
+		var err error
 
-	// g, err := gocui.NewGui(gocui.OutputNormal, true)
-	// if err != nil {
-	// return err
-	// }
-	// defer g.Close()
+		g, err := gocui.NewGui(gocui.OutputNormal, true)
+		if err != nil {
+			return err
+		}
+		defer g.Close()
 
-	// _, err = newApp(g, imageName, analysis, treeStack)
-	// if err != nil {
-	// return err
-	// }
+		_, err = newApp(g, imageName, analysis, treeStack)
+		if err != nil {
+			return err
+		}
 
-	// key, mod := gocui.MustParse("Ctrl+Z")
-	// if err := g.SetKeybinding("", key, mod, handle_ctrl_z); err != nil {
-	// return err
-	// }
+		key, mod := gocui.MustParse("Ctrl+Z")
+		if err := g.SetKeybinding("", key, mod, handle_ctrl_z); err != nil {
+			return err
+		}
 
-	// if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
-	// logrus.Error("main loop error: ", err)
-	// return err
-	// }
+		if err := g.MainLoop(); err != nil && err != gocui.ErrQuit {
+			logrus.Error("main loop error: ", err)
+			return err
+		}
+	}
 	return nil
 }
