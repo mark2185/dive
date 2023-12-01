@@ -1,0 +1,13 @@
+PR:
+✔ stable sort of a tree @done (2023-12-01 11:26)
+☐ help menu as popup
+☐ image details as a separate tab
+☐ copy attributes (hash, name, tags)
+
+Later down the line:
+☐ stream image tar maybe?
+☐ not crash when the image is too big to fit in ram, instead store it on disk and then stream it?
+☐ open selected file
+☐ aggregate changes
+☐ change the width of the last column in a table
+☐ layer details viewport wrap text

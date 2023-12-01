@@ -116,7 +116,7 @@ func (vm *FileTreeViewModel) SetTreeByLayer(bottomTreeStart, bottomTreeStop, top
 	visitor := func(node *filetree.FileNode) error {
 		newNode, err := newTree.GetNode(node.Path())
 		if err == nil {
-			newNode.Data.ViewInfo = node.Data.ViewInfo
+			newNode.Metadata.ViewInfo = node.Metadata.ViewInfo
 		}
 		return nil
 	}
@@ -188,7 +188,7 @@ func (vm *FileTreeViewModel) CursorLeft(filterRegex *regexp.Regexp) error {
 			match := filterRegex.Find([]byte(curNode.Path()))
 			regexMatch = match != nil
 		}
-		return !curNode.Parent.Data.ViewInfo.Collapsed && !curNode.Data.ViewInfo.Hidden && regexMatch
+		return !curNode.Parent.Metadata.ViewInfo.Collapsed && !curNode.Metadata.ViewInfo.Hidden && regexMatch
 	}
 
 	err := vm.ModelTree.VisitDepthParentFirst(visitor, evaluator)
@@ -219,7 +219,7 @@ func (vm *FileTreeViewModel) CursorRight(filterRegex *regexp.Regexp) error {
 		return nil
 	}
 
-	if !node.Data.FileInfo.IsDir {
+	if !node.Metadata.FileInfo.IsDir {
 		return nil
 	}
 
@@ -227,8 +227,8 @@ func (vm *FileTreeViewModel) CursorRight(filterRegex *regexp.Regexp) error {
 		return nil
 	}
 
-	if node.Data.ViewInfo.Collapsed {
-		node.Data.ViewInfo.Collapsed = false
+	if node.Metadata.ViewInfo.Collapsed {
+		node.Metadata.ViewInfo.Collapsed = false
 	}
 
 	vm.TreeIndex++
@@ -315,7 +315,7 @@ func (vm *FileTreeViewModel) getAbsPositionNode(filterRegex *regexp.Regexp) (nod
 			match := filterRegex.Find([]byte(curNode.Path()))
 			regexMatch = match != nil
 		}
-		return !curNode.Parent.Data.ViewInfo.Collapsed && !curNode.Data.ViewInfo.Hidden && regexMatch
+		return !curNode.Parent.Metadata.ViewInfo.Collapsed && !curNode.Metadata.ViewInfo.Hidden && regexMatch
 	}
 
 	err := vm.ModelTree.VisitDepthParentFirst(visitor, evaluator)
@@ -329,8 +329,8 @@ func (vm *FileTreeViewModel) getAbsPositionNode(filterRegex *regexp.Regexp) (nod
 // ToggleCollapse will collapse/expand the selected FileNode.
 func (vm *FileTreeViewModel) ToggleCollapse(filterRegex *regexp.Regexp) error {
 	node := vm.getAbsPositionNode(filterRegex)
-	if node != nil && node.Data.FileInfo.IsDir {
-		node.Data.ViewInfo.Collapsed = !node.Data.ViewInfo.Collapsed
+	if node != nil && node.Metadata.FileInfo.IsDir {
+		node.Metadata.ViewInfo.Collapsed = !node.Metadata.ViewInfo.Collapsed
 	}
 	return nil
 }
@@ -340,12 +340,12 @@ func (vm *FileTreeViewModel) ToggleCollapseAll() error {
 	vm.CollapseAll = !vm.CollapseAll
 
 	visitor := func(curNode *filetree.FileNode) error {
-		curNode.Data.ViewInfo.Collapsed = vm.CollapseAll
+		curNode.Metadata.ViewInfo.Collapsed = vm.CollapseAll
 		return nil
 	}
 
 	evaluator := func(curNode *filetree.FileNode) bool {
-		return curNode.Data.FileInfo.IsDir
+		return curNode.Metadata.FileInfo.IsDir
 	}
 
 	err := vm.ModelTree.VisitDepthChildFirst(visitor, evaluator)
@@ -402,18 +402,18 @@ func (vm *FileTreeViewModel) Update(filterRegex *regexp.Regexp, width, height in
 
 	// keep the vm selection in parity with the current DiffType selection
 	err := vm.ModelTree.VisitDepthChildFirst(func(node *filetree.FileNode) error {
-		node.Data.ViewInfo.Hidden = vm.HiddenDiffTypes[node.Data.DiffType]
+		node.Metadata.ViewInfo.Hidden = vm.HiddenDiffTypes[node.Metadata.DiffType]
 		visibleChild := false
 		for _, child := range node.Children {
-			if !child.Data.ViewInfo.Hidden {
+			if !child.Metadata.ViewInfo.Hidden {
 				visibleChild = true
-				node.Data.ViewInfo.Hidden = false
+				node.Metadata.ViewInfo.Hidden = false
 			}
 		}
 		// hide nodes that do not match the current file filter regex (also don't unhide nodes that are already hidden)
-		if filterRegex != nil && !visibleChild && !node.Data.ViewInfo.Hidden {
+		if filterRegex != nil && !visibleChild && !node.Metadata.ViewInfo.Hidden {
 			match := filterRegex.FindString(node.Path())
-			node.Data.ViewInfo.Hidden = len(match) == 0
+			node.Metadata.ViewInfo.Hidden = len(match) == 0
 		}
 		return nil
 	}, nil)
@@ -426,7 +426,7 @@ func (vm *FileTreeViewModel) Update(filterRegex *regexp.Regexp, width, height in
 	// make a new tree with only visible nodes
 	vm.ViewTree = vm.ModelTree.Copy()
 	err = vm.ViewTree.VisitDepthParentFirst(func(node *filetree.FileNode) error {
-		if node.Data.ViewInfo.Hidden {
+		if node.Metadata.ViewInfo.Hidden {
 			err1 := vm.ViewTree.RemovePath(node.Path())
 			if err1 != nil {
 				return err1

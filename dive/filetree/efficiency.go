@@ -14,6 +14,14 @@ type EfficiencyData struct {
 	minDiscoveredSize int64
 }
 
+func newEfficiencyData(path string) *EfficiencyData {
+	return &EfficiencyData{
+		Path:              path,
+		Nodes:             []*FileNode{},
+		minDiscoveredSize: -1,
+	}
+}
+
 // EfficiencySlice represents an ordered set of EfficiencyData data structures.
 type EfficiencySlice []*EfficiencyData
 
@@ -36,18 +44,14 @@ func (efs EfficiencySlice) Less(i, j int) bool {
 // 1. Files that are duplicated across layers discounts your score, weighted by file size
 // 2. Files that are removed discounts your score, weighted by the original file size
 func Efficiency(trees []*FileTree) (float64, EfficiencySlice) {
-	efficiencyMap := make(map[string]*EfficiencyData)
-	inefficientMatches := make(EfficiencySlice, 0)
+	efficiencyMap := map[string]*EfficiencyData{}
+	inefficientMatches := EfficiencySlice{}
 	currentTree := 0
 
 	visitor := func(node *FileNode) error {
 		path := node.Path()
 		if _, ok := efficiencyMap[path]; !ok {
-			efficiencyMap[path] = &EfficiencyData{
-				Path:              path,
-				Nodes:             make([]*FileNode, 0),
-				minDiscoveredSize: -1,
-			}
+			efficiencyMap[path] = newEfficiencyData(path)
 		}
 		data := efficiencyMap[path]
 
@@ -59,14 +63,12 @@ func Efficiency(trees []*FileTree) (float64, EfficiencySlice) {
 
 		if node.IsWhiteout() {
 			sizer := func(curNode *FileNode) error {
-				sizeBytes += curNode.Data.FileInfo.Size
+				sizeBytes += curNode.Metadata.FileInfo.Size
 				return nil
 			}
 			stackedTree, failedPaths, err := StackTreeRange(trees, 0, currentTree-1)
-			if len(failedPaths) > 0 {
-				for _, path := range failedPaths {
-					logrus.Errorf(path.String())
-				}
+			for _, path := range failedPaths {
+				logrus.Errorf(path.String())
 			}
 			if err != nil {
 				logrus.Errorf("unable to stack tree range: %+v", err)
@@ -78,7 +80,7 @@ func Efficiency(trees []*FileTree) (float64, EfficiencySlice) {
 				return err
 			}
 
-			if previousTreeNode.Data.FileInfo.IsDir {
+			if previousTreeNode.Metadata.FileInfo.IsDir {
 				err = previousTreeNode.VisitDepthChildFirst(sizer, nil, nil)
 				if err != nil {
 					logrus.Errorf("unable to propagate whiteout dir: %+v", err)
@@ -86,7 +88,7 @@ func Efficiency(trees []*FileTree) (float64, EfficiencySlice) {
 				}
 			}
 		} else {
-			sizeBytes = node.Data.FileInfo.Size
+			sizeBytes = node.Metadata.FileInfo.Size
 		}
 
 		data.CumulativeSize += sizeBytes
@@ -120,10 +122,8 @@ func Efficiency(trees []*FileTree) (float64, EfficiencySlice) {
 		minimumPathSizes += value.minDiscoveredSize
 		discoveredPathSizes += value.CumulativeSize
 	}
-	var score float64
-	if discoveredPathSizes == 0 {
-		score = 1.0
-	} else {
+	var score float64 = 1.0
+	if discoveredPathSizes != 0 {
 		score = float64(minimumPathSizes) / float64(discoveredPathSizes)
 	}
 

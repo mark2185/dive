@@ -18,5 +18,6 @@ func newManifest(manifestBytes []byte) manifest {
 	if err != nil {
 		logrus.Panic(err)
 	}
+	// TODO: which image has multiple manifests?
 	return manifest[0]
 }

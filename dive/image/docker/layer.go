@@ -23,7 +23,7 @@ func (l *layer) ToLayer() *image.Layer {
 		Command: strings.TrimPrefix(l.history.CreatedBy, "/bin/sh -c "),
 		Size:    l.history.Size,
 		Tree:    l.tree,
-		// todo: query docker api for tags
+		// TODO: query docker api for tags
 		Names:  []string{"(unavailable)"},
 		Digest: l.history.ID,
 	}

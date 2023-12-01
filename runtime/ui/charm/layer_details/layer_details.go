@@ -12,8 +12,8 @@ import (
 )
 
 type Model struct {
+	Index        int
 	layerDetails []string
-	index        uint
 	viewport     viewport.Model
 }
 
@@ -58,8 +58,8 @@ func (m *Model) Resize(width int, height int) {
 	m.viewport = viewport.New(width, height)
 }
 
-func (m *Model) SetCursor(index uint) {
-	m.index = index
+func (m *Model) SetCursor(index int) {
+	m.Index = index
 }
 
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -69,7 +69,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	m.viewport.SetContent(m.layerDetails[m.index])
+	m.viewport.SetContent(m.layerDetails[m.Index])
 	return m.viewport.View()
 }
 
@@ -80,7 +80,6 @@ func New(layers []*image.Layer) Model {
 	}
 	return Model{
 		layerDetails: details,
-		index:        0,
 		viewport:     viewport.New(0, 0),
 	}
 }

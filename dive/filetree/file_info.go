@@ -42,10 +42,10 @@ func NewFileInfoFromTarHeader(reader *tar.Reader, header *tar.Header, path strin
 	}
 }
 
-func NewFileInfo(realPath, path string, info os.FileInfo) FileInfo {
+func NewFileInfo(realPath string, path string, info os.FileInfo) FileInfo {
 	var err error
 
-	// todo: don't use tar types here, create our own...
+	// TODO: don't use tar types here, create our own...
 	var fileType byte
 	var linkName string
 	var size int64
@@ -83,6 +83,7 @@ func NewFileInfo(realPath, path string, info os.FileInfo) FileInfo {
 		Size:     size,
 		Mode:     info.Mode(),
 		// todo: support UID/GID
+		// TODO: ^ still relevant?
 		Uid:   -1,
 		Gid:   -1,
 		IsDir: info.IsDir(),
@@ -109,13 +110,12 @@ func (data *FileInfo) Copy() *FileInfo {
 
 // Compare determines the DiffType between two FileInfos based on the type and contents of each given FileInfo
 func (data *FileInfo) Compare(other FileInfo) DiffType {
-	if data.TypeFlag == other.TypeFlag {
-		if data.hash == other.hash &&
-			data.Mode == other.Mode &&
-			data.Uid == other.Uid &&
-			data.Gid == other.Gid {
-			return Unmodified
-		}
+	if data.TypeFlag == other.TypeFlag &&
+		data.hash == other.hash &&
+		data.Mode == other.Mode &&
+		data.Uid == other.Uid &&
+		data.Gid == other.Gid {
+		return Unmodified
 	}
 	return Modified
 }

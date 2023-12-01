@@ -58,8 +58,8 @@ func (m Model) Height() int {
 	return m.layers.Height()
 }
 
-func (m Model) Cursor() uint {
-	return uint(m.layers.Cursor())
+func (m Model) Cursor() int {
+	return m.layers.Cursor()
 }
 
 // pass the available number of rows for display
@@ -78,6 +78,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	var cmd tea.Cmd = nil
 	m.layers, cmd = m.layers.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) Blur() {
+	m.layers.Blur()
+}
+
+func (m *Model) Focus() {
+	m.layers.Focus()
 }
 
 func (m Model) View() string {

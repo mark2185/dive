@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 
 	"github.com/awesome-gocui/gocui"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
+	_ "github.com/spf13/viper"
 
 	"github.com/wagoodman/dive/dive/filetree"
 	"github.com/wagoodman/dive/dive/image"
@@ -141,20 +142,22 @@ func (a *app) quit() error {
 
 // Run is the UI entrypoint.
 func Run(imageName string, analysis *image.AnalysisResult, treeStack filetree.Comparer) error {
-	guiVersion := viper.GetInt("gui.version")
-	if guiVersion == 2 {
+	//guiVersion := viper.GetInt("gui.version")
+	useCharm, _ := strconv.ParseBool(os.Getenv("CHARM"))
+	//if guiVersion == 2 && useCharm {
+	if useCharm {
 		// charm (bubbletea)
 		f, err := tea.LogToFile("debug.log", "debug")
 		if err != nil {
-			log.Fatalf("err: %w", err)
+			log.Fatalf("err: %v", err)
 		}
 		defer f.Close()
-		p := tea.NewProgram(tui.New(analysis.Layers), tea.WithAltScreen())
+		p := tea.NewProgram(tui.New(analysis, treeStack), tea.WithAltScreen())
 		if _, err := p.Run(); err != nil {
 			fmt.Printf("Error'd out")
 			os.Exit(1)
 		}
-	} else if guiVersion == 1 {
+	} else {
 		// gocui
 		var err error
 

@@ -15,6 +15,7 @@ const (
 	AttributeFormat = "%s%s %11s %10s "
 )
 
+// TODO: this should be in the TUI package
 var diffTypeColor = map[DiffType]*color.Color{
 	Added:      color.New(color.FgGreen),
 	Removed:    color.New(color.FgRed),
@@ -22,35 +23,36 @@ var diffTypeColor = map[DiffType]*color.Color{
 	Unmodified: color.New(color.Reset),
 }
 
-// FileNode represents a single file, its relation to files beneath it, the tree it exists in, and the metadata of the given file.
+// FileNode represents a single file, its relation to files beneath it, and its metadata.
 type FileNode struct {
-	Tree     *FileTree
-	Parent   *FileNode
-	Size     int64 // memoized total size of file or directory
-	Name     string
-	Data     NodeData
-	Children map[string]*FileNode
-	path     string
+	Parent   *FileNode // needed to remove itself from the parent's children
+	Size     int64     // memoized total size of file or directory
+	Name     string    // basename of path
+	Metadata NodeData
+	Children map[string]*FileNode // keys are the names of nods
+	path     string               // absolute path to node
+}
+
+func (node *FileNode) View() string {
+	return ""
 }
 
 // NewNode creates a new FileNode relative to the given parent node with a payload.
-func NewNode(parent *FileNode, name string, data FileInfo) (node *FileNode) {
-	node = new(FileNode)
-	node.Name = name
-	node.Data = *NewNodeData()
-	node.Data.FileInfo = *data.Copy()
-	node.Size = -1 // signal lazy load later
-
-	node.Children = make(map[string]*FileNode)
-	node.Parent = parent
-	if parent != nil {
-		node.Tree = parent.Tree
+func NewNode(parent *FileNode, name string, data FileInfo) *FileNode {
+	return &FileNode{
+		Name: name,
+		Metadata: NodeData{
+			FileInfo: data,
+			DiffType: Unmodified,
+		},
+		Size:     -1,
+		Children: make(map[string]*FileNode),
+		Parent:   parent,
 	}
-
-	return node
 }
 
 // renderTreeLine returns a string representing this FileNode in the context of a greater ASCII tree.
+// TODO: likely deprecated with charm
 func (node *FileNode) renderTreeLine(spaces []bool, last bool, collapsed bool) string {
 	var otherBranches string
 	for _, space := range spaces {
@@ -75,10 +77,11 @@ func (node *FileNode) renderTreeLine(spaces []bool, last bool, collapsed bool) s
 }
 
 // Copy duplicates the existing node relative to a new parent node.
+// TODO: copy should not take arguments, it should just return a copy of itself
 func (node *FileNode) Copy(parent *FileNode) *FileNode {
-	newNode := NewNode(parent, node.Name, node.Data.FileInfo)
-	newNode.Data.ViewInfo = node.Data.ViewInfo
-	newNode.Data.DiffType = node.Data.DiffType
+	newNode := NewNode(parent, node.Name, node.Metadata.FileInfo)
+	newNode.Metadata.ViewInfo = node.Metadata.ViewInfo
+	newNode.Metadata.DiffType = node.Metadata.DiffType
 	for name, child := range node.Children {
 		newNode.Children[name] = child.Copy(newNode)
 		child.Parent = newNode
@@ -90,26 +93,31 @@ func (node *FileNode) Copy(parent *FileNode) *FileNode {
 func (node *FileNode) AddChild(name string, data FileInfo) (child *FileNode) {
 	// never allow processing of purely whiteout flag files (for now)
 	if strings.HasPrefix(name, doubleWhiteoutPrefix) {
+		// TODO: treat as file with size 0?
 		return nil
 	}
 
 	child = NewNode(node, name, data)
 	if node.Children[name] != nil {
 		// tree node already exists, replace the payload, keep the children
-		node.Children[name].Data.FileInfo = *data.Copy()
+		// TODO: investigate what FileInfo contains
+		node.Children[name].Metadata.FileInfo = *data.Copy()
 	} else {
 		node.Children[name] = child
-		node.Tree.Size++
+		// TODO: move this to Tree
+		// node.Tree.Count++
 	}
 
 	return child
 }
 
-// Remove deletes the current FileNode from it's parent FileNode's relations.
+// Remove deletes the current FileNode and all its children.
+// Also removes itself from parent's children.
 func (node *FileNode) Remove() error {
-	if node == node.Tree.Root {
-		return fmt.Errorf("cannot remove the tree root")
-	}
+	// TODO: FileNode should not have concept of a tree it belongs to
+	// if node == node.Tree.Root {
+	// return fmt.Errorf("cannot remove the tree root")
+	// }
 	for _, child := range node.Children {
 		err := child.Remove()
 		if err != nil {
@@ -117,11 +125,13 @@ func (node *FileNode) Remove() error {
 		}
 	}
 	delete(node.Parent.Children, node.Name)
-	node.Tree.Size--
+	// TODO: FileNode should not have concept of a tree it belongs to
+	// node.Tree.Size--
 	return nil
 }
 
 // String shows the filename formatted into the proper color (by DiffType), additionally indicating if it is a symlink.
+// TODO: investigate symlinks in .tars
 func (node *FileNode) String() string {
 	var display string
 	if node == nil {
@@ -129,49 +139,70 @@ func (node *FileNode) String() string {
 	}
 
 	display = node.Name
-	if node.Data.FileInfo.TypeFlag == tar.TypeSymlink || node.Data.FileInfo.TypeFlag == tar.TypeLink {
-		display += " → " + node.Data.FileInfo.Linkname
+	if node.Metadata.FileInfo.TypeFlag == tar.TypeSymlink || node.Metadata.FileInfo.TypeFlag == tar.TypeLink {
+		display += " → " + node.Metadata.FileInfo.Linkname
 	}
-	return diffTypeColor[node.Data.DiffType].Sprint(display)
+	return diffTypeColor[node.Metadata.DiffType].Sprint(display)
 }
 
-// MetadatString returns the FileNode metadata in a columnar string.
+// MetadataString returns the FileNode metadata in a columnar string.
+// TODO: likely needed for the UID:GID column
 func (node *FileNode) MetadataString() string {
 	if node == nil {
 		return ""
 	}
 
-	fileMode := permbits.FileMode(node.Data.FileInfo.Mode).String()
+	fileMode := permbits.FileMode(node.Metadata.FileInfo.Mode).String()
 	dir := "-"
-	if node.Data.FileInfo.IsDir {
+	if node.Metadata.FileInfo.IsDir {
 		dir = "d"
 	}
-	user := node.Data.FileInfo.Uid
-	group := node.Data.FileInfo.Gid
+	user := node.Metadata.FileInfo.Uid
+	group := node.Metadata.FileInfo.Gid
 	userGroup := fmt.Sprintf("%d:%d", user, group)
 
 	// don't include file sizes of children that have been removed (unless the node in question is a removed dir,
 	// then show the accumulated size of removed files)
-	sizeBytes := node.GetSize()
+	sizeBytes := node.CalculateSize()
 
 	size := humanize.Bytes(uint64(sizeBytes))
 
-	return diffTypeColor[node.Data.DiffType].Sprint(fmt.Sprintf(AttributeFormat, dir, fileMode, userGroup, size))
+	return diffTypeColor[node.Metadata.DiffType].Sprint(fmt.Sprintf(AttributeFormat, dir, fileMode, userGroup, size))
+}
+
+func (node *FileNode) CalculateSize() int64 {
+	// -1 is a placeholder size value
+	if -1 != node.Size {
+		return node.Size
+	}
+	if node.Metadata.DiffType == Removed {
+		return 0
+	}
+
+	var currentNodeSize int64 = 0
+	// TODO: I sure hope there aren't loops in the tree
+	// TODO: rewrite without recursion if benchmarks show this part is slow
+	for _, n := range node.Children {
+		currentNodeSize += n.CalculateSize()
+	}
+	return node.Size
 }
 
 func (node *FileNode) GetSize() int64 {
-	if 0 <= node.Size {
+	// node.Size == -1 is a sentinel value,
+	// it forces the recalculation of the actual size which is then cached in the object
+	if -1 != node.Size {
 		return node.Size
 	}
-	var sizeBytes int64
 
+	var sizeBytes int64
 	if node.IsLeaf() {
-		sizeBytes = node.Data.FileInfo.Size
+		// TODO: use the visitor pattern to simplify
+		sizeBytes = node.Metadata.FileInfo.Size
 	} else {
 		sizer := func(curNode *FileNode) error {
-
-			if curNode.Data.DiffType != Removed || node.Data.DiffType == Removed {
-				sizeBytes += curNode.Data.FileInfo.Size
+			if curNode.Metadata.DiffType != Removed || node.Metadata.DiffType == Removed {
+				sizeBytes += curNode.Metadata.FileInfo.Size
 			}
 			return nil
 		}
@@ -184,7 +215,10 @@ func (node *FileNode) GetSize() int64 {
 	return node.Size
 }
 
-// VisitDepthChildFirst iterates a tree depth-first (starting at this FileNode), evaluating the deepest depths first (visit on bubble up)
+// VisitDepthChildFirst iterates a tree depth-first (starting at this FileNode),
+// evaluating the deepest depths first (visit on bubble up)
+// TODO: why doesn't this have an early exit?
+// TODO: extract visitor and evaluator into a struct?
 func (node *FileNode) VisitDepthChildFirst(visitor Visitor, evaluator VisitEvaluator, sorter OrderStrategy) error {
 	if sorter == nil {
 		sorter = GetSortOrderStrategy(ByName)
@@ -198,16 +232,20 @@ func (node *FileNode) VisitDepthChildFirst(visitor Visitor, evaluator VisitEvalu
 		}
 	}
 	// never visit the root node
-	if node == node.Tree.Root {
-		return nil
-	} else if evaluator != nil && evaluator(node) || evaluator == nil {
+	// if node == node.Tree.Root {
+	// return nil
+	// }
+	if evaluator != nil && evaluator(node) || evaluator == nil {
 		return visitor(node)
 	}
 
 	return nil
 }
 
-// VisitDepthParentFirst iterates a tree depth-first (starting at this FileNode), evaluating the shallowest depths first (visit while sinking down)
+// VisitDepthParentFirst iterates a tree depth-first (starting at this FileNode),
+// evaluating the shallowest depths first (visit while sinking down)
+// TODO: understand why is this
+// TODO: extract visitor and evaluator into a struct?
 func (node *FileNode) VisitDepthParentFirst(visitor Visitor, evaluator VisitEvaluator, sorter OrderStrategy) error {
 	var err error
 
@@ -218,12 +256,12 @@ func (node *FileNode) VisitDepthParentFirst(visitor Visitor, evaluator VisitEval
 	}
 
 	// never visit the root node
-	if node != node.Tree.Root {
-		err = visitor(node)
-		if err != nil {
-			return err
-		}
-	}
+	// if node != node.Tree.Root {
+	// err = visitor(node)
+	// if err != nil {
+	// return err
+	// }
+	// }
 
 	if sorter == nil {
 		sorter = GetSortOrderStrategy(ByName)
@@ -239,7 +277,7 @@ func (node *FileNode) VisitDepthParentFirst(visitor Visitor, evaluator VisitEval
 	return err
 }
 
-// IsWhiteout returns an indication if this file may be a overlay-whiteout file.
+// IsWhiteout returns an indication if this file may be an overlay-whiteout file.
 func (node *FileNode) IsWhiteout() bool {
 	return strings.HasPrefix(node.Name, whiteoutPrefix)
 }
@@ -249,7 +287,9 @@ func (node *FileNode) IsLeaf() bool {
 	return len(node.Children) == 0
 }
 
-// Path returns a slash-delimited string from the root of the greater tree to the current node (e.g. /a/path/to/here)
+// Path returns a slash-delimited string from the root of the greater tree to the current node
+// (e.g. /a/path/to/here)
+// TODO: why are the paths not set when parsing the .tar?
 func (node *FileNode) Path() string {
 	if node.path == "" {
 		var path []string
@@ -273,16 +313,13 @@ func (node *FileNode) Path() string {
 	return strings.Replace(node.path, "//", "/", -1)
 }
 
-// deriveDiffType determines a DiffType to the current FileNode. Note: the DiffType of a node is always the DiffType of
-// its attributes and its contents. The contents are the bytes of the file of the children of a directory.
+// deriveDiffType determines a DiffType to the current FileNode.
+// Note: the DiffType of a node is always the DiffType of its attributes and its contents.
+// The contents are the bytes of the file of the children of a directory.
 func (node *FileNode) deriveDiffType(diffType DiffType) error {
-	if node.IsLeaf() {
-		return node.AssignDiffType(diffType)
-	}
-
 	myDiffType := diffType
 	for _, v := range node.Children {
-		myDiffType = myDiffType.merge(v.Data.DiffType)
+		myDiffType = merge(myDiffType, v.Metadata.DiffType)
 	}
 
 	return node.AssignDiffType(myDiffType)
@@ -290,14 +327,12 @@ func (node *FileNode) deriveDiffType(diffType DiffType) error {
 
 // AssignDiffType will assign the given DiffType to this node, possibly affecting child nodes.
 func (node *FileNode) AssignDiffType(diffType DiffType) error {
-	var err error
-
-	node.Data.DiffType = diffType
+	node.Metadata.DiffType = diffType
 
 	if diffType == Removed {
 		// if we've removed this node, then all children have been removed as well
 		for _, child := range node.Children {
-			err = child.AssignDiffType(diffType)
+			err := child.AssignDiffType(Removed)
 			if err != nil {
 				return err
 			}
@@ -328,5 +363,5 @@ func (node *FileNode) compare(other *FileNode) DiffType {
 		panic("comparing mismatched nodes")
 	}
 
-	return node.Data.FileInfo.Compare(other.Data.FileInfo)
+	return node.Metadata.FileInfo.Compare(other.Metadata.FileInfo)
 }

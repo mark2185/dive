@@ -13,7 +13,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/wagoodman/dive/dive/filetree"
 	"github.com/wagoodman/dive/dive/image"
+	uifiletree "github.com/wagoodman/dive/runtime/ui/charm/filetree"
 	"github.com/wagoodman/dive/runtime/ui/charm/layer_details"
 	"github.com/wagoodman/dive/runtime/ui/charm/layers"
 	_ "golang.org/x/term"
@@ -22,12 +24,13 @@ import (
 // keyMap defines a set of keybindings. To work for help it must satisfy
 // key.Map. It could also very easily be a map[string]key.Binding.
 type keyMap struct {
-	Up    key.Binding
-	Down  key.Binding
-	Left  key.Binding
-	Right key.Binding
-	Help  key.Binding
-	Quit  key.Binding
+	Up     key.Binding
+	Down   key.Binding
+	Left   key.Binding
+	Right  key.Binding
+	Help   key.Binding
+	Switch key.Binding
+	Quit   key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view. It's part
@@ -57,8 +60,12 @@ var keys = keyMap{
 		key.WithKeys("?"),
 		key.WithHelp("?", "toggle help"),
 	),
+	Switch: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("<Tab>", "Switch view"),
+	),
 	Quit: key.NewBinding(
-		key.WithKeys("q", "esc", "ctrl+c"),
+		key.WithKeys("q", "ctrl+c"),
 		key.WithHelp("q", "quit"),
 	),
 }
@@ -102,13 +109,13 @@ type model struct {
 	box          *flexbox.FlexBox
 	layers       layers.Model
 	layerDetails layer_details.Model
-	// layerDetails layers.Details
-	width    int
-	height   int
-	help     help.Model
-	keys     keyMap
-	viewport viewport.Model
-	styles   styles
+	filetree     uifiletree.Model
+	width        int
+	height       int
+	help         help.Model
+	keys         keyMap
+	viewport     viewport.Model
+	styles       styles
 }
 
 var (
@@ -118,11 +125,14 @@ var (
 	style4 = lipgloss.NewStyle().Background(lipgloss.Color("#26de81"))
 )
 
-func New(ls []*image.Layer) model {
+func New(analysis *image.AnalysisResult, treeStack filetree.Comparer) model {
+	ls := analysis.Layers
+	trees := analysis.RefTrees
 	m := model{
 		selected:     Layer,
 		layers:       layers.New(ls),
 		layerDetails: layer_details.New(ls),
+		filetree:     uifiletree.New(trees),
 		help:         help.New(),
 		keys:         keys,
 		styles:       DefaultStyles(),
@@ -137,7 +147,7 @@ func New(ls []*image.Layer) model {
 		),
 		m.box.NewRow().AddCells(
 			// filetree
-			flexbox.NewCell(1, 50).SetStyle(style3),
+			flexbox.NewCell(1, 50),
 		),
 		m.box.NewRow().AddCells(
 			// help
@@ -153,6 +163,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	log.Println("Update method called")
 	var cmd tea.Cmd = nil
 
 	switch msg := msg.(type) {
@@ -176,18 +187,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.layerDetails.Resize(_c.GetWidth(), _c.GetHeight())
 
+		_r1 := m.box.GetRow(1)
+		_c1 := _r1.GetCell(0)
+		m.filetree.SetHeight(_c1.GetHeight() - 1)
+
 	case tea.KeyMsg:
 		if key.Matches(msg, m.keys.Help) {
 			m.help.ShowAll = !m.help.ShowAll
 		}
-		m.layers, cmd = m.layers.Update(msg)
-		switch msg.String() {
-		case "ctrl+c", "q":
+		switch {
+		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
-		case "up", "k", "down", "j":
-			m.layerDetails.SetCursor(m.layers.Cursor())
+		case key.Matches(msg, m.keys.Up, m.keys.Down):
+			switch m.selected {
+			case Layer:
+				m.layers, cmd = m.layers.Update(msg)
+				m.filetree.SetIndex(m.layers.Cursor())
+				m.layerDetails.Index = m.layers.Cursor()
+			case Filetree:
+				m.filetree, cmd = m.filetree.Update(msg)
+			}
+		case key.Matches(msg, m.keys.Switch):
+			switch m.selected {
+			case Layer:
+				m.layers.Blur()
+				m.filetree.Focus()
+				m.layers, cmd = m.layers.Update(msg)
+				m.filetree, cmd = m.filetree.Update(msg)
+				m.selected = Filetree
+			case Filetree:
+				m.filetree.Blur()
+				m.layers.Focus()
+				m.layers, cmd = m.layers.Update(msg)
+				m.filetree, cmd = m.filetree.Update(msg)
+				m.selected = Layer
+			}
 		}
-
 	}
 
 	return m, cmd
@@ -201,6 +236,7 @@ func (m model) View() string {
 	log.Printf("H: %d, W: %d", m.height, m.width)
 	m.box.GetRow(0).GetCell(0).SetContent(m.layers.View())
 	m.box.GetRow(0).GetCell(1).SetContent(m.layerDetails.View())
+	m.box.GetRow(1).GetCell(0).SetContent(m.filetree.View())
 	m.box.GetRow(2).GetCell(0).SetContent(m.help.View(m.keys))
 	return m.box.Render()
 	// helpView := m.help.View(m.keys)

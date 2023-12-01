@@ -13,6 +13,15 @@ import (
 	"github.com/wagoodman/dive/dive/image"
 )
 
+func hasSuffix(haystack string, needles ...string) bool {
+	for _, n := range needles {
+		if strings.HasSuffix(haystack, n) {
+			return true
+		}
+	}
+	return false
+}
+
 type ImageArchive struct {
 	manifest manifest
 	config   config
@@ -21,15 +30,14 @@ type ImageArchive struct {
 
 func NewImageArchive(tarFile io.ReadCloser) (*ImageArchive, error) {
 	img := &ImageArchive{
-		layerMap: make(map[string]*filetree.FileTree),
+		layerMap: map[string]*filetree.FileTree{},
 	}
-
-	tarReader := tar.NewReader(tarFile)
 
 	// store discovered json files in a map so we can read the image in one pass
 	jsonFiles := make(map[string][]byte)
 
-	var currentLayer uint
+	tarReader := tar.NewReader(tarFile)
+
 	for {
 		header, err := tarReader.Next()
 
@@ -42,47 +50,41 @@ func NewImageArchive(tarFile io.ReadCloser) (*ImageArchive, error) {
 			os.Exit(1)
 		}
 
+		// name of file entry
 		name := header.Name
 
 		// some layer tars can be relative layer symlinks to other layer tars
+		// TODO: what happens with other types?
+		// TODO: log when a different type appears
 		if header.Typeflag == tar.TypeSymlink || header.Typeflag == tar.TypeReg {
-			if strings.HasSuffix(name, ".tar") {
-				currentLayer++
-				layerReader := tar.NewReader(tarReader)
-				tree, err := processLayerTar(name, layerReader)
-				if err != nil {
-					return img, err
-				}
-
-				// add the layer to the image
-				img.layerMap[tree.Name] = tree
-			} else if strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, "tgz") {
-				currentLayer++
-
-				// Add gzip reader
-				gz, err := gzip.NewReader(tarReader)
-				if err != nil {
-					return img, err
-				}
-
-				// Add tar reader
-				layerReader := tar.NewReader(gz)
-
-				// Process layer
-				tree, err := processLayerTar(name, layerReader)
-				if err != nil {
-					return img, err
-				}
-
-				// add the layer to the image
-				img.layerMap[tree.Name] = tree
-			} else if strings.HasSuffix(name, ".json") || strings.HasPrefix(name, "sha256:") {
+			if strings.HasSuffix(name, ".json") || strings.HasPrefix(name, "sha256:") {
+				// metadata files
 				fileBuffer, err := io.ReadAll(tarReader)
 				if err != nil {
 					return img, err
 				}
 				jsonFiles[name] = fileBuffer
+			} else if hasSuffix(name, ".tar", ".tar.gz", ".tgz") {
+				// actual tar with files
+				layerReader := tar.NewReader(tarReader)
+				if hasSuffix(name, ".tar.gz", ".tgz") {
+					// have to decompress
+					gz, err := gzip.NewReader(tarReader)
+					if err != nil {
+						return img, err
+					}
+					layerReader = tar.NewReader(gz)
+				}
+				tree, err := processTarLayer(name, layerReader)
+				if err != nil {
+					return img, err
+				}
+
+				// add the layer to the image
+				img.layerMap[tree.Name] = tree
 			}
+			// if it's neither, then it's probably a VERSION file or something else
+			// TODO: investigate the OCI standard to see which other files could it be
 		}
 	}
 
@@ -103,7 +105,7 @@ func NewImageArchive(tarFile io.ReadCloser) (*ImageArchive, error) {
 	return img, nil
 }
 
-func processLayerTar(name string, reader *tar.Reader) (*filetree.FileTree, error) {
+func processTarLayer(name string, reader *tar.Reader) (*filetree.FileTree, error) {
 	tree := filetree.NewFileTree()
 	tree.Name = name
 
@@ -121,9 +123,12 @@ func processLayerTar(name string, reader *tar.Reader) (*filetree.FileTree, error
 		}
 	}
 
+	// TODO: spin off in a separate thread
+	tree.Root.CalculateSize()
 	return tree, nil
 }
 
+// takes a layer as .tar and returns all files
 func getFileList(tarReader *tar.Reader) ([]filetree.FileInfo, error) {
 	var files []filetree.FileInfo
 
@@ -131,7 +136,8 @@ func getFileList(tarReader *tar.Reader) ([]filetree.FileInfo, error) {
 		header, err := tarReader.Next()
 		if err == io.EOF {
 			break
-		} else if err != nil {
+		}
+		if err != nil {
 			return nil, err
 		}
 
@@ -141,11 +147,12 @@ func getFileList(tarReader *tar.Reader) ([]filetree.FileInfo, error) {
 			continue
 		}
 
+		// TODO: why are these unexpected?
 		switch header.Typeflag {
 		case tar.TypeXGlobalHeader:
-			return nil, fmt.Errorf("unexptected tar file: (XGlobalHeader): type=%v name=%s", header.Typeflag, name)
+			return nil, fmt.Errorf("unexpected tar file: (XGlobalHeader): type=%v name=%s", header.Typeflag, name)
 		case tar.TypeXHeader:
-			return nil, fmt.Errorf("unexptected tar file (XHeader): type=%v name=%s", header.Typeflag, name)
+			return nil, fmt.Errorf("unexpected tar file (XHeader): type=%v name=%s", header.Typeflag, name)
 		default:
 			files = append(files, filetree.NewFileInfoFromTarHeader(tarReader, header, name))
 		}
@@ -154,20 +161,19 @@ func getFileList(tarReader *tar.Reader) ([]filetree.FileInfo, error) {
 }
 
 func (img *ImageArchive) ToImage() (*image.Image, error) {
-	trees := make([]*filetree.FileTree, 0)
+	trees := []*filetree.FileTree{}
 
 	// build the content tree
 	for _, treeName := range img.manifest.LayerTarPaths {
 		tr, exists := img.layerMap[treeName]
-		if exists {
-			trees = append(trees, tr)
-			continue
+		if !exists {
+			return nil, fmt.Errorf("could not find '%s' in parsed layers", treeName)
 		}
-		return nil, fmt.Errorf("could not find '%s' in parsed layers", treeName)
+		trees = append(trees, tr)
 	}
 
 	// build the layers array
-	layers := make([]*image.Layer, 0)
+	layers := []*image.Layer{}
 
 	// note that the engineResolver config stores images in reverse chronological order, so iterate backwards through layers
 	// as you iterate chronologically through history (ignoring history items that have no layer contents)

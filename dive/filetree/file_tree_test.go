@@ -15,8 +15,8 @@ func stringInSlice(a string, list []string) bool {
 }
 
 func AssertDiffType(node *FileNode, expectedDiffType DiffType) error {
-	if node.Data.DiffType != expectedDiffType {
-		return fmt.Errorf("Expecting node at %s to have DiffType %v, but had %v", node.Path(), expectedDiffType, node.Data.DiffType)
+	if node.Metadata.DiffType != expectedDiffType {
+		return fmt.Errorf("Expecting node at %s to have DiffType %v, but had %v", node.Path(), expectedDiffType, node.Metadata.DiffType)
 	}
 	return nil
 }
@@ -27,7 +27,7 @@ func TestStringCollapsed(t *testing.T) {
 	two := tree.Root.AddChild("2 node!", FileInfo{})
 	subTwo := two.AddChild("2 child!", FileInfo{})
 	subTwo.AddChild("2 grandchild!", FileInfo{})
-	subTwo.Data.ViewInfo.Collapsed = true
+	subTwo.Metadata.ViewInfo.Collapsed = true
 	three := tree.Root.AddChild("3 node!", FileInfo{})
 	subThree := three.AddChild("3 child!", FileInfo{})
 	three.AddChild("3 nested child 1!", FileInfo{})
@@ -35,7 +35,7 @@ func TestStringCollapsed(t *testing.T) {
 	threeGc1.AddChild("3 greatgrandchild 1!", FileInfo{})
 	subThree.AddChild("3 grandchild 2!", FileInfo{})
 	four := tree.Root.AddChild("4 node!", FileInfo{})
-	four.Data.ViewInfo.Collapsed = true
+	four.Metadata.ViewInfo.Collapsed = true
 	tree.Root.AddChild("5 node!", FileInfo{})
 	four.AddChild("6, one level down...", FileInfo{})
 
@@ -366,8 +366,8 @@ func TestStack(t *testing.T) {
 		t.Errorf("Expected '%s' to still exist, but it doesn't", payloadKey)
 	}
 
-	if node == nil || node.Data.FileInfo.Path != payloadValue.Path {
-		t.Errorf("Expected '%s' value to be %+v but got %+v", payloadKey, payloadValue, node.Data.FileInfo)
+	if node == nil || node.Metadata.FileInfo.Path != payloadValue.Path {
+		t.Errorf("Expected '%s' value to be %+v but got %+v", payloadKey, payloadValue, node.Metadata.FileInfo)
 	}
 
 	actual := tree1.String(false)
@@ -464,8 +464,8 @@ func TestCompareWithNoChanges(t *testing.T) {
 		if n.Path() == "/" {
 			return nil
 		}
-		if (n.Data.DiffType) != Unmodified {
-			t.Errorf("Expecting node at %s to have DiffType unchanged, but had %v", n.Path(), n.Data.DiffType)
+		if (n.Metadata.DiffType) != Unmodified {
+			t.Errorf("Expecting node at %s to have DiffType unchanged, but had %v", n.Path(), n.Metadata.DiffType)
 		}
 		return nil
 	}
@@ -816,12 +816,12 @@ func TestRemoveOnIterate(t *testing.T) {
 		}
 		node, _, err := tree.AddPath(value, fakeData)
 		if err == nil && stringInSlice(node.Path(), []string{"/etc"}) {
-			node.Data.ViewInfo.Hidden = true
+			node.Metadata.ViewInfo.Hidden = true
 		}
 	}
 
 	err := tree.VisitDepthChildFirst(func(node *FileNode) error {
-		if node.Data.ViewInfo.Hidden {
+		if node.Metadata.ViewInfo.Hidden {
 			err := tree.RemovePath(node.Path())
 			if err != nil {
 				t.Errorf("could not setup test: %v", err)

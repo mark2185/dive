@@ -30,6 +30,13 @@ func (diff DiffType) String() string {
 	}
 }
 
+func merge(fst DiffType, snd DiffType) DiffType {
+	if fst == snd {
+		return fst
+	}
+	return Modified
+}
+
 // merge two DiffTypes into a single result. Essentially, return the given value unless they two values differ,
 // in which case we can only determine that there is "a change".
 func (diff DiffType) merge(other DiffType) DiffType {

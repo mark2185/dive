@@ -10,8 +10,8 @@ func TestAssignDiffType(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error from fetching path. got: %v", err)
 	}
-	node.Data.DiffType = Modified
-	if tree.Root.Children["usr"].Data.DiffType != Modified {
+	node.Metadata.DiffType = Modified
+	if tree.Root.Children["usr"].Metadata.DiffType != Modified {
 		t.Fail()
 	}
 }

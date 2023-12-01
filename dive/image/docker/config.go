@@ -6,9 +6,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// TODO: add test for parsing a config
+
 type config struct {
-	History []historyEntry `json:"history"`
-	RootFs  rootFs         `json:"rootfs"`
+	History      []historyEntry `json:"history"`
+	RootFs       rootFs         `json:"rootfs"`
+	Architecture string         `json:"architecture"`
+	Created      string         `json:"created"`
 }
 
 type rootFs struct {

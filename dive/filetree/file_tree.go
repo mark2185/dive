@@ -5,10 +5,20 @@ import (
 	"path"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
+func Values[K comparable, V comparable](m map[K]V) []V {
+	res := make([]V, len(m))
+	i := 0
+	for _, v := range m {
+		res[i] = v
+		i++
+	}
+	return res
+}
+
+// TODO: move to the TUI package
 const (
 	newLine              = "\n"
 	noBranchSpace        = "    "
@@ -23,24 +33,25 @@ const (
 
 // FileTree represents a set of files, directories, and their relations.
 type FileTree struct {
-	Root      *FileNode
-	Size      int
-	FileSize  uint64
-	Name      string
-	Id        uuid.UUID
-	SortOrder SortOrder
+	Root     *FileNode
+	Count    uint   // total number of nodes in the tree (dirs, files, symlinks)
+	FileSize uint64 // sum of the sizes of all nodes
+	Name     string // TODO: ?
+	// Id        uuid.UUID // TODO: not used at all?
+	SortOrder SortOrder // nodes sort order when displaying the tree
 }
 
 // NewFileTree creates an empty FileTree
-func NewFileTree() (tree *FileTree) {
-	tree = new(FileTree)
-	tree.Size = 0
-	tree.Root = new(FileNode)
-	tree.Root.Tree = tree
-	tree.Root.Children = make(map[string]*FileNode)
-	tree.Id = uuid.New()
-	tree.SortOrder = ByName
-	return tree
+func NewFileTree() *FileTree {
+	root := FileNode{
+		Children: map[string]*FileNode{},
+	}
+	return &FileTree{
+		Count: 1,
+		Root:  &root,
+		//Id:        uuid.New(),
+		SortOrder: ByName,
+	}
 }
 
 // renderParams is a representation of a FileNode in the context of the greater tree. All
@@ -53,11 +64,39 @@ type renderParams struct {
 	isLast        bool
 }
 
+type FileNodeMeta struct {
+	Node  *FileNode
+	Depth int
+}
+
+func (tree *FileTree) Sort() []*FileNodeMeta {
+	sorter := GetSortOrderStrategy(tree.SortOrder)
+
+	res := []*FileNodeMeta{}
+	nodesToVisit := []*FileNodeMeta{{Node: tree.Root, Depth: 0}}
+	var head *FileNodeMeta
+	for {
+		if len(nodesToVisit) == 0 {
+			break
+		}
+		head, nodesToVisit = nodesToVisit[0], nodesToVisit[1:]
+		if head != nil {
+			res = append(res, head)
+			children := []*FileNodeMeta{}
+			for _, child := range sorter.orderKeys(head.Node.Children) {
+				children = append(children, &FileNodeMeta{head.Node.Children[child], head.Depth + 1})
+			}
+			nodesToVisit = append(children, nodesToVisit...)
+		}
+	}
+	return res
+}
+
 // renderStringTreeBetween returns a string representing the given tree between the given rows. Since each node
 // is rendered on its own line, the returned string shows the visible nodes not affected by a collapsed parent.
 func (tree *FileTree) renderStringTreeBetween(startRow, stopRow int, showAttributes bool) string {
 	// generate a list of nodes to render
-	var params = make([]renderParams, 0)
+	var params = []renderParams{}
 	var result string
 
 	// visit from the front of the list
@@ -75,19 +114,19 @@ func (tree *FileTree) renderStringTreeBetween(startRow, stopRow int, showAttribu
 		for idx, name := range keys {
 			child := currentParams.node.Children[name]
 			// don't visit this node...
-			if child.Data.ViewInfo.Hidden || currentParams.node.Data.ViewInfo.Collapsed {
+			if child.Metadata.ViewInfo.Hidden || currentParams.node.Metadata.ViewInfo.Collapsed {
 				continue
 			}
 
 			// visit this node...
 			isLast := idx == (len(currentParams.node.Children) - 1)
-			showCollapsed := child.Data.ViewInfo.Collapsed && len(child.Children) > 0
+			showCollapsed := child.Metadata.ViewInfo.Collapsed && len(child.Children) > 0
 
 			// completely copy the reference slice
 			childSpaces := make([]bool, len(currentParams.childSpaces))
 			copy(childSpaces, currentParams.childSpaces)
 
-			if len(child.Children) > 0 && !child.Data.ViewInfo.Collapsed {
+			if len(child.Children) > 0 && !child.Metadata.ViewInfo.Collapsed {
 				childSpaces = append(childSpaces, isLast)
 			}
 
@@ -135,14 +174,14 @@ func (tree *FileTree) VisibleSize() int {
 		return nil
 	}
 	visitEvaluator := func(node *FileNode) bool {
-		if node.Data.FileInfo.IsDir {
+		if node.Metadata.FileInfo.IsDir {
 			// we won't visit a collapsed dir, but we need to count it
-			if node.Data.ViewInfo.Collapsed {
+			if node.Metadata.ViewInfo.Collapsed {
 				size++
 			}
-			return !node.Data.ViewInfo.Collapsed && !node.Data.ViewInfo.Hidden
+			return !node.Metadata.ViewInfo.Collapsed && !node.Metadata.ViewInfo.Hidden
 		}
-		return !node.Data.ViewInfo.Hidden
+		return !node.Metadata.ViewInfo.Hidden
 	}
 	err := tree.VisitDepthParentFirst(visitor, visitEvaluator)
 	if err != nil {
@@ -157,7 +196,7 @@ func (tree *FileTree) VisibleSize() int {
 
 // String returns the entire tree in an ASCII representation.
 func (tree *FileTree) String(showAttributes bool) string {
-	return tree.renderStringTreeBetween(0, tree.Size, showAttributes)
+	return tree.renderStringTreeBetween(0, int(tree.Count), showAttributes)
 }
 
 // StringBetween returns a partial tree in an ASCII representation.
@@ -168,14 +207,13 @@ func (tree *FileTree) StringBetween(start, stop int, showAttributes bool) string
 // Copy returns a copy of the given FileTree
 func (tree *FileTree) Copy() *FileTree {
 	newTree := NewFileTree()
-	newTree.Size = tree.Size
+	newTree.Count = tree.Count
 	newTree.FileSize = tree.FileSize
 	newTree.Root = tree.Root.Copy(newTree.Root)
 	newTree.SortOrder = tree.SortOrder
 
 	// update the tree pointers
 	err := newTree.VisitDepthChildFirst(func(node *FileNode) error {
-		node.Tree = newTree
 		return nil
 	}, nil)
 
@@ -213,7 +251,7 @@ func (tree *FileTree) Stack(upper *FileTree) (failed []PathError, stackErr error
 				failed = append(failed, NewPathError(node.Path(), ActionAdd, err))
 			}
 		} else {
-			_, _, err := tree.AddPath(node.Path(), node.Data.FileInfo)
+			_, _, err := tree.AddPath(node.Path(), node.Metadata.FileInfo)
 			if err != nil {
 				failed = append(failed, NewPathError(node.Path(), ActionRemove, err))
 			}
@@ -226,12 +264,11 @@ func (tree *FileTree) Stack(upper *FileTree) (failed []PathError, stackErr error
 
 // GetNode fetches a single node when given a slash-delimited string from root ('/') to the desired node (e.g. '/a/node/path')
 func (tree *FileTree) GetNode(path string) (*FileNode, error) {
-	nodeNames := strings.Split(strings.Trim(path, "/"), "/")
+	// TODO: is trim really needed?
+	// nodeNames := strings.Split(strings.Trim(path, "/"), "/")
+	nodeNames := strings.Split(path, "/")
 	node := tree.Root
-	for _, name := range nodeNames {
-		if name == "" {
-			continue
-		}
+	for _, name := range filterEmpty(nodeNames) {
 		if node.Children[name] == nil {
 			return nil, fmt.Errorf("path does not exist: %s", path)
 		}
@@ -240,44 +277,53 @@ func (tree *FileTree) GetNode(path string) (*FileNode, error) {
 	return node, nil
 }
 
-// AddPath adds a new node to the tree with the given payload
+// Filters out empty strings from a list
+// TODO: move to utils
+func filterEmpty(l []string) []string {
+	res := []string{}
+	for _, elem := range l {
+		if len(elem) > 0 {
+			res = append(res, elem)
+		}
+	}
+	return res
+}
+
+// Adds a new node to the tree with the given payload
 func (tree *FileTree) AddPath(filepath string, data FileInfo) (*FileNode, []*FileNode, error) {
 	filepath = path.Clean(filepath)
 	if filepath == "." {
 		return nil, nil, fmt.Errorf("cannot add relative path '%s'", filepath)
 	}
+
 	nodeNames := strings.Split(strings.Trim(filepath, "/"), "/")
 	node := tree.Root
-	addedNodes := make([]*FileNode, 0)
-	for idx, name := range nodeNames {
-		if name == "" {
-			continue
-		}
+	addedNodes := []*FileNode{}
+	for _, name := range filterEmpty(nodeNames) {
 		// find or create node
 		if node.Children[name] != nil {
 			node = node.Children[name]
-		} else {
+		} else if strings.HasPrefix(name, doubleWhiteoutPrefix) {
 			// don't add paths that should be deleted
-			if strings.HasPrefix(name, doubleWhiteoutPrefix) {
-				return nil, addedNodes, nil
-			}
-
+			return nil, addedNodes, nil
+		} else {
 			// don't attach the payload. The payload is destined for the
 			// Path's end node, not any intermediary node.
 			node = node.AddChild(name, FileInfo{})
-			addedNodes = append(addedNodes, node)
-
 			if node == nil {
 				// the child could not be added
 				return node, addedNodes, fmt.Errorf(fmt.Sprintf("could not add child node: '%s' (path:'%s')", name, filepath))
 			}
-		}
 
-		// attach payload to the last specified node
-		if idx == len(nodeNames)-1 {
-			node.Data.FileInfo = data
+			tree.Count++
+			addedNodes = append(addedNodes, node)
 		}
 	}
+
+	// attach payload to the last specified node
+	node.Metadata.FileInfo = data
+	node.Size = data.Size
+
 	return node, addedNodes, nil
 }
 
@@ -287,6 +333,11 @@ func (tree *FileTree) RemovePath(path string) error {
 	if err != nil {
 		return err
 	}
+	if node == tree.Root {
+		return fmt.Errorf("cannot remove the tree root")
+	}
+	// TODO: fix the tree.Count when removing nodes
+	// what happens if a directory is removed?
 	return node.Remove()
 }
 
@@ -319,7 +370,7 @@ func (tree *FileTree) CompareAndMark(upper *FileTree) ([]PathError, error) {
 		originalLowerNode, _ := originalTree.GetNode(upperNode.Path())
 
 		if originalLowerNode == nil {
-			_, newNodes, err := tree.AddPath(upperNode.Path(), upperNode.Data.FileInfo)
+			_, newNodes, err := tree.AddPath(upperNode.Path(), upperNode.Metadata.FileInfo)
 			if err != nil {
 				failed = append(failed, NewPathError(upperNode.Path(), ActionAdd, err))
 				return nil
@@ -351,7 +402,7 @@ func (tree *FileTree) CompareAndMark(upper *FileTree) ([]PathError, error) {
 			if err != nil {
 				return failed, err
 			}
-		} else if pair.lowerNode.Data.DiffType == Unmodified {
+		} else if pair.lowerNode.Metadata.DiffType == Unmodified {
 			err = pair.lowerNode.deriveDiffType(pair.tentative)
 			if err != nil {
 				return failed, err
@@ -359,7 +410,7 @@ func (tree *FileTree) CompareAndMark(upper *FileTree) ([]PathError, error) {
 		}
 
 		// persist the upper's payload on the owning tree
-		pair.lowerNode.Data.FileInfo = *pair.upperNode.Data.FileInfo.Copy()
+		pair.lowerNode.Metadata.FileInfo = *pair.upperNode.Metadata.FileInfo.Copy()
 	}
 	return failed, nil
 }

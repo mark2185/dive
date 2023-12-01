@@ -4,6 +4,7 @@ var GlobalFileTreeCollapse bool
 
 // NodeData is the payload for a FileNode
 type NodeData struct {
+	// TODO: this should be in the TUI part
 	ViewInfo ViewInfo
 	FileInfo FileInfo
 	DiffType DiffType
